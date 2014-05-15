@@ -1,29 +1,28 @@
-package Test::Linter;
+package Test::Linter::File;
 
-# Created on: 2014-05-13 17:27:54
+# Created on: 2014-05-13 17:41:04
 # Create by:  Ivan Wills
 # $Id$
 # $Revision$, $HeadURL$, $Date$
 # $Revision$, $Source$, $Date$
 
-use strict;
-use warnings;
+use Moose;
+use namespace::autoclean;
+use version;
 use Carp;
+use Scalar::Util;
+use List::Util;
+#use List::MoreUtils;
 use Data::Dumper qw/Dumper/;
 use English qw/ -no_match_vars /;
-use base qw/Exporter/;
 
-our $VERSION     = 0.001;
-our @EXPORT_OK   = qw/test_linter/;
-our %EXPORT_TAGS = ();
-our @EXPORT      = qw/test_linter/;
+extends 'Some::Thing';
 
-sub test_linter {
-    my %config = $#_ == 1 && ref $_[0] eq 'HASH' ? %{$_[0]} : @_;
-
-}
+our $VERSION = version->new('0.0.1');
 
 
+
+__PACKAGE__->meta->make_immutable;
 
 1;
 
@@ -31,16 +30,16 @@ __END__
 
 =head1 NAME
 
-Test::Linter - <One-line description of module's purpose>
+Test::Linter::File - <One-line description of module's purpose>
 
 =head1 VERSION
 
-This documentation refers to Test::Linter version 0.0.1
+This documentation refers to Test::Linter::File version 0.0.1
 
 
 =head1 SYNOPSIS
 
-   use Test::Linter;
+   use Test::Linter::File;
 
    # Brief but working code example(s) here showing the most common usage(s)
    # This section will be as far as many users bother reading, so make it as
@@ -69,15 +68,6 @@ form "An object of this class represents ...") to give the reader a high-level
 context to help them understand the methods that are subsequently described.
 
 
-=head3 C<new ( $search, )>
-
-Param: C<$search> - type (detail) - description
-
-Return: Test::Linter -
-
-Description:
-
-=cut
 
 
 =head1 DIAGNOSTICS
