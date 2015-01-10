@@ -19,11 +19,12 @@ our $VERSION = 0.001;
 my ($name)   = $PROGRAM_NAME =~ m{^.*/(.*?)$}mxs;
 
 my %option = (
-    ignore_file => '.lint_ignore',
-    verbose     => 0,
-    man         => 0,
-    help        => 0,
-    VERSION     => 0,
+    progressive_file => '.progressive',
+    ignore_file      => '.lint_ignore',
+    verbose          => 0,
+    man              => 0,
+    help             => 0,
+    VERSION          => 0,
 );
 my %types = (
     lint_perl => qr/[.]pl$|[.]pm$|[.]pod$/,
@@ -32,6 +33,7 @@ my %types = (
     lint_css  => qr/[.]css$/,
     lint_scss => qr/[.]scss$/,
 );
+my %progressive;
 
 main();
 done_testing;
@@ -42,6 +44,10 @@ sub main {
     Getopt::Long::Configure('bundling');
     GetOptions(
         \%option,
+        'ignore_file|ignore-file|i=s',
+        'progressive_file|progressive-file|P=s',
+        'use_progressive|use-progressive|p',
+        'set_progressive|set-progressive|S',
         'verbose|v+',
         'man',
         'help',
@@ -59,6 +65,11 @@ sub main {
         pod2usage( -verbose => 1 );
     }
 
+    if ($option{use_progressive}) {
+        my $fh = file($option{progressive_file})->openr;
+        %progressive = map {/^(.*)\n/; ($1 => 0) } <$fh>;
+    }
+
     # look for files that git sees as changed not all files
     if ( $option{git_hook} ) {
         # TODO
@@ -66,25 +77,32 @@ sub main {
     elsif ( $option{git} ) {
         # TODO
     }
+    else {
+        my $dir = dir( shift @ARGV || '.' );
+        my @files = $dir->children;
 
-    my $dir = dir( shift @ARGV || '.' );
-    my @files = $dir->children;
+        while (my $file = shift @files) {
 
-    while (my $file = shift @files) {
+            next if ignored($file);
 
-        next if ignored($file);
+            if ( -d $file ) {
+                push @files, $file->children;
+                next;
+            }
 
-        if ( -d $file ) {
-            push @files, $file->children;
-            next;
+            my $linted = 0;
+            for my $linter (keys %types) {
+                next if $file !~ /$types{$linter}/;
+                main->$linter($file);
+                $linted = 1;
+            }
         }
+    }
 
-        my $linted = 0;
-        for my $linter (keys %types) {
-            next if $file !~ /$types{$linter}/;
-            main->$linter($file);
-            $linted = 1;
-        }
+    if ( $option{set_progressive} || ($option{use_progressive} && grep {$_} values %progressive) ) {
+        my $fh = file($option{progressive_file})->openw;
+        print {$fh} join "\n", sort keys %progressive;
+        print {$fh} "\n";
     }
 
     return;
@@ -94,6 +112,8 @@ sub lint_perl {
     my ($self, $file) = @_;
 
     my $error = run("perlcritic", $file);
+
+    return if !defined $error;
 
     ok !$error, "no perlcritic errors for '$file'";
 }
@@ -107,13 +127,23 @@ sub lint_js {
 
     my $error = run("jshint", $file);
 
+    return if !defined $error;
+
+    $progressive{$file} = 1 if $option{set_progressive} && $error;
+    return if defined $progressive{$file} && $error;
+    delete $progressive{$file} if defined $progressive{$file} && !$error;
+
     ok !$error, "no jshint errors for '$file'";
+
+    return;
 }
 
 sub lint_css {
     my ($self, $file) = @_;
 
     my ($error, $out) = run("csslint", $file);
+
+    return if !defined $error;
 
     like $out, qr/^csslint: \s+ No \s+ errors \s+ in/xms, "no csslint errors for '$file'";
 }
@@ -122,6 +152,8 @@ sub lint_scss {
     my ($self, $file) = @_;
 
     my $error = run("scss-lint", $file);
+
+    return if !defined $error;
 
     ok !$error, "no scss-lint errors for '$file'";
 }
