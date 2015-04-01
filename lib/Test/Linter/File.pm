@@ -8,7 +8,6 @@ package Test::Linter::File;
 
 use Moose;
 use namespace::autoclean;
-use version;
 use Carp;
 use Scalar::Util;
 use List::Util;
@@ -18,9 +17,28 @@ use English qw/ -no_match_vars /;
 
 extends 'Some::Thing';
 
-our $VERSION = version->new('0.0.1');
+our $VERSION = 0.001;
 
+has file => (
+    is  => 'ro',
+    isa => 'Class::Path::File',
+);
 
+has anotation => (
+    is  => 'ro',
+    isa => 'ArrayRef[Str]',
+);
+has linters => (
+    is  => 'ro',
+    isa => 'ArrayRef[Str]',
+);
+
+sub lint {
+    my ($self) = @_;
+
+    for my $linter (@{ $self->linter}) {
+    }
+}
 
 __PACKAGE__->meta->make_immutable;
 
