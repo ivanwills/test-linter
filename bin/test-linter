@@ -12,7 +12,7 @@ use Getopt::Long;
 use Pod::Usage;
 use Data::Dumper qw/Dumper/;
 use English qw/ -no_match_vars /;
-use Path::Class;
+use Path::Tiny;
 use Test::More;
 
 our $VERSION = 0.001;
@@ -66,7 +66,7 @@ sub main {
     }
 
     if ($option{use_progressive}) {
-        my $fh = file($option{progressive_file})->openr;
+        my $fh = path($option{progressive_file})->openr;
         %progressive = map {/^(.*)\n/; ($1 => 0) } <$fh>;
     }
 
@@ -78,7 +78,7 @@ sub main {
         # TODO
     }
     else {
-        my $dir = dir( shift @ARGV || '.' );
+        my $dir = path( shift @ARGV || '.' );
         my @files = $dir->children;
 
         while (my $file = shift @files) {
@@ -100,7 +100,7 @@ sub main {
     }
 
     if ( $option{set_progressive} || ($option{use_progressive} && grep {$_} values %progressive) ) {
-        my $fh = file($option{progressive_file})->openw;
+        my $fh = path($option{progressive_file})->openw;
         print {$fh} join "\n", sort keys %progressive;
         print {$fh} "\n";
     }
@@ -171,7 +171,7 @@ sub run {
 
         for my $path (split /[:;]/, $ENV{PATH}) {
             next if !-d $path;
-            next if !-x file($path, $lint);
+            next if !-x path($path, $lint);
             $executor{$lint} = $path;
         }
     }
@@ -209,7 +209,7 @@ sub ignored {
 sub setup_ignored {
     $regexes = [];
 
-    my $ignore_file = file($option{ignore_file});
+    my $ignore_file = path($option{ignore_file});
     return if !-w $ignore_file;
 
     my $fh = $ignore_file->openr;
