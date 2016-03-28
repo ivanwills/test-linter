@@ -13,6 +13,7 @@ use Pod::Usage;
 use Data::Dumper qw/Dumper/;
 use English qw/ -no_match_vars /;
 use Path::Tiny;
+use POSIX ":sys_wait_h";
 use Test::More;
 
 our $VERSION = 0.001;
@@ -21,6 +22,7 @@ my ($name)   = $PROGRAM_NAME =~ m{^.*/(.*?)$}mxs;
 my %option = (
     progressive_file => '.progressive',
     ignore_file      => '.lint_ignore',
+    concurrent       => 0,
     verbose          => 0,
     man              => 0,
     help             => 0,
@@ -33,6 +35,9 @@ my %types = (
     lint_css  => qr/[.]css$/,
     lint_scss => qr/[.]scss$/,
 );
+my $EXIT_OK      = 1;
+my $EXIT_FAILED  = 2;
+my $EXIT_SKIPPED = 3;
 my %progressive;
 
 main();
@@ -44,6 +49,7 @@ sub main {
     Getopt::Long::Configure('bundling');
     GetOptions(
         \%option,
+        'concurrent|c=i',
         'ignore_file|ignore-file|i=s',
         'progressive_file|progressive-file|P=s',
         'use_progressive|use-progressive|p',
@@ -93,11 +99,13 @@ sub main {
             my $linted = 0;
             for my $linter (keys %types) {
                 next if $file !~ /$types{$linter}/;
-                main->$linter($file);
+                note "Executing $file";
+                main->executor($linter, $file);
                 $linted = 1;
             }
         }
     }
+    wait;
 
     if ( $option{set_progressive} || ($option{use_progressive} && grep {$_} values %progressive) ) {
         my $fh = path($option{progressive_file})->openw;
@@ -108,14 +116,49 @@ sub main {
     return;
 }
 
+my %pids;
+my $count = 0;
+sub executor {
+    my ($self, $linter, $file) = @_;
+
+    my $pid = fork();
+    if ($pid) {
+        $pids{$pid} = $file;
+        while ($option{concurrent} < keys %pids) {
+            for my $pid (keys %pids) {
+                my $res = waitpid($pid, WNOHANG);
+                note "Checking $pid ($pids{$pid}) got $res";
+                if ($res > 0) {
+                    note "Finished $pid ($pids{$pid}) ($res) \t $? - ${^CHILD_ERROR_NATIVE}";
+                    delete $pids{$pid};
+                    #$progressive{$file} = 1 if $option{set_progressive} && $error;
+                    #return if defined $progressive{$file} && $error;
+                    #delete $progressive{$file} if defined $progressive{$file} && !$error;
+
+                }
+            }
+            sleep 1;
+            exit if $count++ == 10;
+        }
+    }
+    else {
+        $self->$linter($file);
+        exit $EXIT_SKIPPED;
+    }
+
+    return;
+}
+
 sub lint_perl {
     my ($self, $file) = @_;
 
     my $error = run("perlcritic", $file);
+    warn "Done $file";
 
-    return if !defined $error;
+    exit $EXIT_SKIPPED if !defined $error;
 
-    ok !$error, "no perlcritic errors for '$file'";
+    warn $error ? '$EXIT_FAILED ': '$EXIT_OK';
+    exit $error ? $EXIT_FAILED : $EXIT_OK;
 }
 
 sub lint_ftl {
@@ -127,15 +170,10 @@ sub lint_js {
 
     my $error = run("jshint", $file);
 
-    return if !defined $error;
+    exit $EXIT_SKIPPED if !defined $error;
 
-    $progressive{$file} = 1 if $option{set_progressive} && $error;
-    return if defined $progressive{$file} && $error;
-    delete $progressive{$file} if defined $progressive{$file} && !$error;
-
-    ok !$error, "no jshint errors for '$file'";
-
-    return;
+    warn $error ? '$EXIT_FAILED ': '$EXIT_OK';
+    exit $error ? $EXIT_FAILED : $EXIT_OK;
 }
 
 sub lint_css {
@@ -143,9 +181,9 @@ sub lint_css {
 
     my ($error, $out) = run("csslint", $file);
 
-    return if !defined $error;
+    exit $EXIT_SKIPPED if !defined $error;
 
-    like $out, qr/^csslint: \s+ No \s+ errors \s+ in/xms, "no csslint errors for '$file'";
+    exit $out =~ /^csslint: \s+ No \s+ errors \s+ in/xms ? $EXIT_FAILED : $EXIT_OK;
 }
 
 sub lint_scss {
@@ -153,31 +191,31 @@ sub lint_scss {
 
     my $error = run("scss-lint", $file);
 
-    return if !defined $error;
+    exit $EXIT_SKIPPED if !defined $error;
 
-    ok !$error, "no scss-lint errors for '$file'";
+    exit $error ? $EXIT_FAILED : $EXIT_OK;
 }
 
 sub lint_other {
     my ($self, $file) = @_;
 }
 
-my %executor;
+my %linter;
 sub run {
     my ($lint, @command) = @_;
 
-    if (!exists $executor{$lint}) {
-        $executor{$lint} = undef;
+    if (!exists $linter{$lint}) {
+        $linter{$lint} = undef;
 
         for my $path (split /[:;]/, $ENV{PATH}) {
             next if !-d $path;
             next if !-x path($path, $lint);
-            $executor{$lint} = $path;
+            $linter{$lint} = $path;
         }
     }
 
     # check if linter is installed
-    return if !$executor{$lint};
+    return if !$linter{$lint};
 
     my $cmd = join ' ', map {quote($_)} ($lint, @command);
     note "$cmd\n" if $option{verbose} > 1;
